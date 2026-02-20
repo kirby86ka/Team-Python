@@ -45,45 +45,67 @@ Detailed per-student profiles with risk trends, question-level breakdowns, and a
 ## Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) installed on your machine.
+- Node.js installed on your machine
 
-From here, either:
-### Quick Launch 
-1. **Clone the Identity**:
-   ```bash
-   git clone https://github.com/Jam232006/Team-Python.git
-   cd Team-Python
-   ```
+### Quick Launch (Recommended)
 
-2. **One-Click Launch**:
-   
-   **Windows:**
-   ```bash
-   quick-launch.bat
-   ```
-   
-   **Mac/Linux:**
-   ```bash
-   chmod +x quick-launch.sh
-   ./quick-launch.sh
-   ```
+**Clone the repository:**
+```bash
+git clone https://github.com/Jam232006/Team-Python.git
+cd Team-Python
+```
 
-   The script will automatically:
-   - Install dependencies (if needed)
-   - Start backend server on http://localhost:5000
-   - Start frontend server on http://localhost:5173
-   - Open your browser
-   - Show test credentials
+**Run the demo launcher:**
 
-or:
+Windows:
+```bash
+quick-launch.bat
+```
+
+Mac/Linux:
+```bash
+chmod +x quick-launch.sh
+./quick-launch.sh
+```
+
+The launcher automatically installs dependencies, starts servers, and opens the application at http://localhost:5173
+
 ### Manual Installation
-1. **Backend**:
-   ```bash
-   cd backend
-   npm install
-  Mentor: sarah@insight.com / password123
+
+**Backend:**
+```bash
+cd backend
+npm install
+npm run seed    # Populate demo database
+npm start       # Start server on port 5000
+```
+
+**Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev     # Start dev server on port 5173
+```
+
+### Demo Credentials
+- Mentor: sarah@insight.com / password123
 - Student (High Risk): daksh@insight.com / password123
 - Student (Low Risk): arjun@insight.com / password123
+
+## Project Structure
+
+```
+Team-Python/
+├── quick-launch.bat   # Windows one-click launcher
+├── quick-launch.sh    # Mac/Linux one-click launcher
+├── backend/           # Core application server
+├── frontend/          # Core application UI
+└── demo/              # Demo/testing materials (NOT production code)
+    ├── docs/          # Hackathon/judge documentation
+    └── seed-data/     # Demo database seeding files (copies)
+```
+
+**Note:** The `demo/` directory contains all temporary demonstration materials. In production, this entire directory should be excluded.
 
 ## Architecture Notes
 

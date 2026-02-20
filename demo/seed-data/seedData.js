@@ -1,14 +1,3 @@
-/**
- * DEMO DATA - Student Profiles and Test Data
- * 
- * This file contains fabricated student data for demonstration purposes.
- * The 8 students represent diverse risk profiles to showcase the system's
- * detection capabilities during hackathon presentations.
- * 
- * In production, this data would come from real LMS integration.
- * Reference copy available at: /demo/seed-data/seedData.js
- */
-
 // Student performance profiles
 module.exports = {
     students: [

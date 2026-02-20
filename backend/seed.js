@@ -1,3 +1,18 @@
+/**
+ * DEMO/TESTING SCRIPT - Database Seeding
+ * 
+ * This script populates the database with demo data for hackathon presentations
+ * and testing purposes. In production, this would be replaced with real data
+ * integration from existing LMS platforms (Google Classroom, Canvas, etc.)
+ * 
+ * Demo data includes:
+ * - 1 mentor account (sarah@insight.com)
+ * - 8 student accounts with varied risk profiles
+ * - Sample assignments and submissions
+ * 
+ * See: /demo/seed-data/ for reference copies of demo data files
+ */
+
 const bcrypt = require('bcryptjs');
 const db = require('./db/database');
 const { run } = require('./utils/dbHelpers');

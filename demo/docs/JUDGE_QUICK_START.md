@@ -1,6 +1,6 @@
 ## For Judges & Reviewers
 
-### Launch
+### Quick Launch (30 Seconds)
 
 **Windows:**
 ```bash
@@ -14,6 +14,8 @@ cd Team-Python
 chmod +x quick-launch.sh
 ./quick-launch.sh
 ```
+
+The script automatically installs dependencies, starts both servers, and opens http://localhost:5173
 
 ### Manual Setup (If Needed)
 

@@ -1,11 +1,3 @@
-/**
- * DEMO DATA - Sample Assignment Questions
- * 
- * Pre-defined questions for demo assignments to showcase the system.
- * In production, questions would come from actual course content.
- * Reference copy available at: /demo/seed-data/questions.js
- */
-
 // Assignment questions data
 module.exports = {
     assignment1: [

@@ -1,12 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { 
-    Plus, Trash2, Save, Send, ListOrdered, 
-    Type, Hash, CheckSquare, ArrowLeft, Settings 
-} from 'lucide-react';
-
-const API = 'http://localhost:5000/api';
+import { Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Card, Button, Input } from './shared/UIComponents';
+import { api } from '../utils/api';
 
 const AssignmentCreator = ({ onBack, preSelectedClassId }) => {
     const { user } = useAuth();
@@ -30,9 +26,7 @@ const AssignmentCreator = ({ onBack, preSelectedClassId }) => {
 
     useEffect(() => {
         if (user?.id) {
-            axios.get(`${API}/classes/mentor/${user.id}`)
-                .then(res => setClasses(res.data))
-                .catch(console.error);
+            api.classes.getByMentor(user.id).then(res => setClasses(res || [])).catch(console.error);
         }
         if (preSelectedClassId) {
             setFormData(prev => ({ ...prev, class_id: preSelectedClassId }));
@@ -49,9 +43,7 @@ const AssignmentCreator = ({ onBack, preSelectedClassId }) => {
         }]);
     };
 
-    const removeQuestion = (index) => {
-        setQuestions(questions.filter((_, i) => i !== index));
-    };
+    const removeQuestion = (index) => setQuestions(questions.filter((_, i) => i !== index));
 
     const updateQuestion = (index, field, value) => {
         const updated = [...questions];
@@ -79,358 +71,203 @@ const AssignmentCreator = ({ onBack, preSelectedClassId }) => {
 
     const handlePublish = async (e) => {
         e.preventDefault();
-        
         if (!formData.class_id || !formData.title || !formData.due_date) {
-            alert('Please fill in all required fields');
-            return;
+            return alert('Please fill class, title, and due date');
         }
-
-        if (questions.length === 0) {
-            alert('Please add at least one question');
-            return;
-        }
-
-        // Validate questions
-        for (let i = 0; i < questions.length; i++) {
-            const q = questions[i];
-            if (!q.question_text.trim()) {
-                alert(`Question ${i + 1} text is required`);
-                return;
-            }
-            if (!q.correct_answer.trim()) {
-                alert(`Question ${i + 1} correct answer is required`);
-                return;
-            }
-            if (q.question_type === 'multiple_choice' && q.options.filter(o => o.trim()).length < 2) {
-                alert(`Question ${i + 1} needs at least 2 options`);
-                return;
-            }
+        if (questions.some(q => !q.question_text || !q.correct_answer)) {
+            return alert('All questions must have text and correct answer');
         }
 
         setPublishing(true);
         try {
-            const res = await axios.post(`${API}/assignments/create`, {
+            await api.assignments.create({
                 mentor_id: user.id,
                 ...formData,
                 questions: questions.map(q => ({
                     ...q,
-                    options: q.question_type === 'multiple_choice' 
-                        ? q.options.filter(o => o.trim()) 
-                        : null
+                    options: q.question_type === 'multiple_choice' ? q.options.filter(o => o.trim()) : null
                 }))
             });
-            alert(res.data.message);
-            if (onBack) onBack();
+            alert('Assignment published!');
+            onBack();
         } catch (err) {
-            alert(err.response?.data?.error || 'Failed to publish assignment');
+            alert(err.message || 'Failed to publish');
         }
         setPublishing(false);
     };
 
-    const totalPoints = questions.reduce((sum, q) => sum + (parseInt(q.points) || 1), 0);
-
     return (
-        <div style={{ padding: '40px', maxWidth: '1200px', margin: '0 auto' }}>
-            <div style={{ marginBottom: '32px' }}>
-                <button onClick={onBack} className="btn-secondary" style={{ marginBottom: '20px' }}>
-                    <ArrowLeft size={18} /> Back
-                </button>
-                <h1 style={{ fontSize: '2rem', margin: '0 0 8px 0', color: '#202124' }}>Create Assignment</h1>
-                <p style={{ color: '#5f6368', fontSize: '1rem', margin: 0 }}>
-                    Build an auto-graded assignment with multiple question types
-                </p>
-            </div>
+        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '32px 24px' }}>
+            <Button onClick={onBack} style={{ marginBottom: '20px' }}>
+                <ArrowLeft size={18} /> Back
+            </Button>
+
+            <h1 style={{ fontSize: '2rem', margin: '0 0 24px' }}>Create Assignment</h1>
 
             <form onSubmit={handlePublish}>
-                {/* Assignment Details */}
-                <div className="card" style={{ marginBottom: '24px' }}>
-                    <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px', color: '#202124', fontSize: '1.125rem' }}>
-                        <ListOrdered size={18} color="var(--primary)" /> Assignment Details
-                    </h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Class *
-                            </label>
+                <Card style={{ marginBottom: '24px' }}>
+                    <h3 style={{ margin: '0 0 16px' }}>Assignment Details</h3>
+                    <div style={{ display: 'grid', gap: '16px' }}>
+                        <div>
+                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Class *</label>
                             <select 
                                 className="input"
                                 value={formData.class_id}
-                                onChange={e => setFormData({...formData, class_id: e.target.value})}
+                                onChange={e => setFormData({ ...formData, class_id: e.target.value })}
                                 required
+                                disabled={!!preSelectedClassId}
                             >
-                                <option value="">Choose Class...</option>
-                                {classes.map(c => (
-                                    <option key={c.class_id} value={c.class_id}>{c.name}</option>
-                                ))}
+                                <option value="">Select a class...</option>
+                                {classes.map(c => <option key={c.class_id} value={c.class_id}>{c.name}</option>)}
                             </select>
                         </div>
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Title *
-                            </label>
-                            <input 
-                                type="text"
+                        <Input 
+                            label="Title *" 
+                            value={formData.title}
+                            onChange={e => setFormData({ ...formData, title: e.target.value })}
+                            placeholder="e.g., Arrays and Linked Lists Quiz"
+                            required
+                        />
+                        <div>
+                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Description</label>
+                            <textarea
                                 className="input"
-                                placeholder="e.g., Week 5 Quiz - Data Structures"
-                                value={formData.title}
-                                onChange={e => setFormData({...formData, title: e.target.value})}
-                                required
-                            />
-                        </div>
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Description
-                            </label>
-                            <textarea 
-                                className="input"
-                                placeholder="Instructions, notes, or additional context..."
-                                rows={3}
                                 value={formData.description}
-                                onChange={e => setFormData({...formData, description: e.target.value})}
+                                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                placeholder="Enter assignment description..."
+                                rows={3}
                             />
                         </div>
-                        <div>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Due Date & Time *
-                            </label>
-                            <input 
-                                type="datetime-local"
-                                className="input"
-                                value={formData.due_date}
-                                onChange={e => setFormData({...formData, due_date: e.target.value})}
-                                required
-                            />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Total Points
-                            </label>
-                            <input 
-                                type="text"
-                                className="input"
-                                value={totalPoints}
-                                disabled
-                                style={{ background: '#f8f9fa', color: 'var(--primary)', fontWeight: 600 }}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Time Configuration */}
-                <div className="card" style={{ marginBottom: '24px', background: '#e8f0fe', border: '2px solid var(--primary)' }}>
-                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#202124', fontSize: '1.125rem' }}>
-                        <Settings size={18} color="var(--primary)" /> Time Configuration
-                    </h3>
-                    <p style={{ fontSize: '0.875rem', color: '#5f6368', marginBottom: '20px' }}>
-                        Set when students can access and submit this assignment. Leave blank for no restrictions.
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
-                        <div>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Available From
-                            </label>
-                            <input 
-                                type="datetime-local"
-                                className="input"
-                                value={formData.active_from}
-                                onChange={e => setFormData({...formData, active_from: e.target.value})}
-                                style={{ background: 'white' }}
-                            />
-                            <p style={{ fontSize: '0.75rem', color: '#5f6368', marginTop: '4px' }}>
-                                Students can't see assignment before this time
-                            </p>
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                Available Until
-                            </label>
-                            <input 
-                                type="datetime-local"
-                                className="input"
-                                value={formData.active_until}
-                                onChange={e => setFormData({...formData, active_until: e.target.value})}
-                                style={{ background: 'white' }}
-                            />
-                            <p style={{ fontSize: '0.75rem', color: '#5f6368', marginTop: '4px' }}>
-                                Students can't submit after this time
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Questions */}
-                {questions.map((q, qIndex) => (
-                    <div key={qIndex} className="card" style={{ marginBottom: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ fontSize: '1.125rem', margin: 0, color: '#202124' }}>Question {qIndex + 1}</h3>
-                            {questions.length > 1 && (
-                                <button 
-                                    type="button"
-                                    onClick={() => removeQuestion(qIndex)}
-                                    className="btn-secondary"
-                                    style={{
-                                        padding: '6px 12px',
-                                        fontSize: '0.875rem',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px'
-                                    }}
-                                >
-                                    <Trash2 size={14} /> Remove
-                                </button>
-                            )}
-                        </div>
-
-                        <div style={{ display: 'grid', gap: '20px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                             <div>
-                                <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                    Question *
-                                </label>
-                                <textarea 
+                                <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Due Date *</label>
+                                <input
+                                    type="datetime-local"
                                     className="input"
-                                    placeholder="Enter your question..."
-                                    rows={2}
-                                    value={q.question_text}
-                                    onChange={e => updateQuestion(qIndex, 'question_text', e.target.value)}
+                                    value={formData.due_date}
+                                    onChange={e => setFormData({ ...formData, due_date: e.target.value })}
                                     required
                                 />
                             </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
-                                <div>
-                                    <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                        Type *
-                                    </label>
-                                    <select 
-                                        className="input"
-                                        value={q.question_type}
-                                        onChange={e => updateQuestion(qIndex, 'question_type', e.target.value)}
-                                    >
-                                        <option value="multiple_choice">Multiple Choice</option>
-                                        <option value="text">Text Answer</option>
-                                        <option value="numeric">Numeric Answer</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                        Points *
-                                    </label>
-                                    <input 
-                                        type="number"
-                                        className="input"
-                                        min="1"
-                                        value={q.points}
-                                        onChange={e => updateQuestion(qIndex, 'points', e.target.value)}
-                                        required
-                                    />
-                                </div>
+                            <div>
+                                <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Active From</label>
+                                <input
+                                    type="datetime-local"
+                                    className="input"
+                                    value={formData.active_from}
+                                    onChange={e => setFormData({ ...formData, active_from: e.target.value })}
+                                />
                             </div>
-
-                            {q.question_type === 'multiple_choice' ? (
-                                <div>
-                                    <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '12px' }}>
-                                        Options (Click option to set as correct answer)
-                                    </label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {q.options.map((opt, optIndex) => (
-                                            <div key={optIndex} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                <input 
-                                                    type="radio"
-                                                    name={`correct-${qIndex}`}
-                                                    checked={q.correct_answer === opt}
-                                                    onChange={() => updateQuestion(qIndex, 'correct_answer', opt)}
-                                                    style={{ cursor: 'pointer' }}
-                                                />
-                                                <input 
-                                                    type="text"
-                                                    className="input"
-                                                    placeholder={`Option ${String.fromCharCode(65 + optIndex)}`}
-                                                    value={opt}
-                                                    onChange={e => updateOption(qIndex, optIndex, e.target.value)}
-                                                    style={{ flex: 1 }}
-                                                />
-                                                {q.options.length > 2 && (
-                                                    <button 
-                                                        type="button"
-                                                        onClick={() => removeOption(qIndex, optIndex)}
-                                                        style={{
-                                                            background: 'transparent',
-                                                            border: '1px solid var(--glass-border)',
-                                                            color: 'var(--text-muted)',
-                                                            padding: '8px',
-                                                            borderRadius: '8px',
-                                                            cursor: 'pointer'
-                                                        }}
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button 
-                                            type="button"
-                                            onClick={() => addOption(qIndex)}
-                                            style={{
-                                                background: 'rgba(0,255,159,0.05)',
-                                                border: '1px dashed var(--primary)',
-                                                color: 'var(--primary)',
-                                                padding: '10px',
-                                                borderRadius: '8px',
-                                                cursor: 'pointer',
-                                                fontSize: '0.8rem',
-                                                fontWeight: 600
-                                            }}
-                                        >
-                                            + Add Option
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div>
-                                    <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>
-                                        Correct Answer *
-                                    </label>
-                                    <input 
-                                        type={q.question_type === 'numeric' ? 'number' : 'text'}
-                                        step={q.question_type === 'numeric' ? 'any' : undefined}
-                                        className="input"
-                                        placeholder={q.question_type === 'numeric' ? 'e.g., 42' : 'Enter the correct answer'}
-                                        value={q.correct_answer}
-                                        onChange={e => updateQuestion(qIndex, 'correct_answer', e.target.value)}
-                                        required
-                                    />
-                                    {q.question_type === 'text' && (
-                                        <p style={{ fontSize: '0.875rem', color: '#5f6368', marginTop: '6px' }}>
-                                            Note: Text answers are case-insensitive
-                                        </p>
-                                    )}
-                                </div>
-                            )}
+                            <div>
+                                <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Active Until</label>
+                                <input
+                                    type="datetime-local"
+                                    className="input"
+                                    value={formData.active_until}
+                                    onChange={e => setFormData({ ...formData, active_until: e.target.value })}
+                                />
+                            </div>
                         </div>
                     </div>
-                ))}
+                </Card>
 
-                <div style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
-                    <button 
-                        type="button"
-                        onClick={addQuestion}
-                        className="btn-secondary"
-                        style={{ flex: 1 }}
-                    >
-                        <Plus size={18} /> Add Question
-                    </button>
-                    <button 
-                        type="submit"
-                        className="btn"
-                        disabled={publishing}
-                        style={{ flex: 1 }}
-                    >
-                        <Send size={18} /> {publishing ? 'Publishing...' : 'Publish Assignment'}
-                    </button>
+                {/* Questions */}
+                <div style={{ marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 style={{ margin: 0 }}>Questions ({questions.length})</h3>
+                        <Button type="button" onClick={addQuestion} icon={<Plus size={16} />}>Add Question</Button>
+                    </div>
+
+                    {questions.map((q, qIdx) => (
+                        <Card key={qIdx} style={{ marginBottom: '16px', position: 'relative' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <h4 style={{ margin: 0 }}>Question {qIdx + 1}</h4>
+                                {questions.length > 1 && (
+                                    <Button type="button" size="small" variant="secondary" onClick={() => removeQuestion(qIdx)} icon={<Trash2 size={14} />}>
+                                        Remove
+                                    </Button>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '16px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Question Text *</label>
+                                    <textarea
+                                        className="input"
+                                        value={q.question_text}
+                                        onChange={e => updateQuestion(qIdx, 'question_text', e.target.value)}
+                                        placeholder="Enter the question..."
+                                        rows={2}
+                                        required
+                                    />
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.875rem', color: '#5f6368', display: 'block', marginBottom: '6px' }}>Question Type</label>
+                                        <select
+                                            className="input"
+                                            value={q.question_type}
+                                            onChange={e => updateQuestion(qIdx, 'question_type', e.target.value)}
+                                        >
+                                            <option value="multiple_choice">Multiple Choice</option>
+                                            <option value="text">Text</option>
+                                            <option value="numeric">Numeric</option>
+                                        </select>
+                                    </div>
+                                    <Input
+                                        label="Correct Answer *"
+                                        value={q.correct_answer}
+                                        onChange={e => updateQuestion(qIdx, 'correct_answer', e.target.value)}
+                                        placeholder="Answer"
+                                        required
+                                    />
+                                    <Input
+                                        label="Points"
+                                        type="number"
+                                        value={q.points}
+                                        onChange={e => updateQuestion(qIdx, 'points', parseInt(e.target.value) || 1)}
+                                        min="1"
+                                    />
+                                </div>
+
+                                {q.question_type === 'multiple_choice' && (
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                            <label style={{ fontSize: '0.875rem', color: '#5f6368' }}>Options</label>
+                                            <Button type="button" size="small" onClick={() => addOption(qIdx)} icon={<Plus size={14} />}>Add</Button>
+                                        </div>
+                                        <div style={{ display: 'grid', gap: '8px' }}>
+                                            {q.options.map((opt, optIdx) => (
+                                                <div key={optIdx} style={{ display: 'flex', gap: '8px' }}>
+                                                    <input
+                                                        className="input"
+                                                        value={opt}
+                                                        onChange={e => updateOption(qIdx, optIdx, e.target.value)}
+                                                        placeholder={`Option ${optIdx + 1}`}
+                                                    />
+                                                    {q.options.length > 2 && (
+                                                        <Button type="button" size="small" variant="secondary" onClick={() => removeOption(qIdx, optIdx)} icon={<Trash2 size={14} />} />
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </Card>
+                    ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                    <Button type="button" variant="secondary" onClick={onBack}>Cancel</Button>
+                    <Button type="submit" disabled={publishing}>
+                        {publishing ? 'Publishing...' : 'Publish Assignment'}
+                    </Button>
                 </div>
             </form>
         </div>
     );
 };
 
-export default React.memo(AssignmentCreator);
+export default AssignmentCreator;

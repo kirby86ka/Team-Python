@@ -1,14 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import {
-    Plus, BookOpen, CheckCircle, AlertTriangle, Clock,
-    Bell, Mail, UserCheck, UserX, FileText, TrendingUp, Activity, X, FolderOpen
-} from 'lucide-react';
+import { Plus, BookOpen, CheckCircle, AlertTriangle, Clock, Bell, UserCheck, UserX, Activity } from 'lucide-react';
+import { Card, Button, Badge, Table, Loading, StatCard } from './shared/UIComponents';
+import { api } from '../utils/api';
+import { formatDate, percentage, getRiskColor } from '../utils/helpers';
 import AssignmentTaker from './AssignmentTaker';
 import ClassView from './ClassView';
-
-const API = 'http://localhost:5000/api';
 
 const StudentDashboard = () => {
     const [risk, setRisk] = useState(null);
@@ -19,7 +16,7 @@ const StudentDashboard = () => {
     const [pendingAssignments, setPendingAssignments] = useState([]);
     const [completedAssignments, setCompletedAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
-    const { user, logout } = useAuth();
+    const { user } = useAuth();
     const [showAdd, setShowAdd] = useState(false);
     const [newAct, setNewAct] = useState({ type: 'assignment', title: '', dueDate: '', status: 'submitted', delay: 0 });
     const [resolving, setResolving] = useState(null);
@@ -31,26 +28,23 @@ const StudentDashboard = () => {
     const fetchData = async () => {
         try {
             const [rRes, aRes, alRes, invRes, pendRes, compRes, classRes] = await Promise.all([
-                axios.get(`${API}/risk/${user.id}`).catch(() => ({ data: {} })),
-                axios.get(`${API}/activity/${user.id}`).catch(() => ({ data: [] })),
-                axios.get(`${API}/alerts/for/student/${user.id}`).catch(() => ({ data: [] })),
-                axios.get(`${API}/invites/student/${user.id}`).catch(() => ({ data: [] })),
-                axios.get(`${API}/assignments/student/${user.id}/pending`).catch(() => ({ data: [] })),
-                axios.get(`${API}/assignments/student/${user.id}/completed`).catch(() => ({ data: [] })),
-                axios.get(`${API}/classes/student/${user.id}`).catch(() => ({ data: [] }))
+                api.risk.get(user.id),
+                api.activity.get(user.id),
+                api.alerts.getForStudent(user.id),
+                api.invites.getForStudent(user.id),
+                api.assignments.getPending(user.id),
+                api.assignments.getCompleted(user.id),
+                api.classes.getByStudent(user.id)
             ]);
-            setRisk(rRes.data || {});
-            setActivities(Array.isArray(aRes.data) ? aRes.data : []);
-            setAlerts(Array.isArray(alRes.data) ? alRes.data : []);
-            setInvites(Array.isArray(invRes.data) ? invRes.data : []);
-            setPendingAssignments(Array.isArray(pendRes.data) ? pendRes.data : []);
-            setCompletedAssignments(Array.isArray(compRes.data) ? compRes.data : []);
-            setClasses(Array.isArray(classRes.data) ? classRes.data : []);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
+            setRisk(rRes || {});
+            setActivities(aRes || []);
+            setAlerts(alRes || []);
+            setInvites(invRes || []);
+            setPendingAssignments(pendRes || []);
+            setCompletedAssignments(compRes || []);
+            setClasses(classRes || []);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
     };
 
     useEffect(() => {
@@ -60,15 +54,7 @@ const StudentDashboard = () => {
     const handleAddActivity = async (e) => {
         e.preventDefault();
         try {
-            await axios.post(`${API}/activity/log`, {
-                user_id: user.id,
-                activity_type: newAct.type,
-                title: newAct.title || undefined,
-                submission_date: new Date().toISOString(),
-                due_date: newAct.dueDate || undefined,
-                status: newAct.status,
-                response_time_days: parseInt(newAct.delay) || 0
-            });
+            await api.activity.log(user.id, newAct.type, newAct.title, new Date().toISOString(), newAct.dueDate, newAct.status, parseInt(newAct.delay) || 0);
             setShowAdd(false);
             setNewAct({ type: 'assignment', title: '', dueDate: '', status: 'submitted', delay: 0 });
             fetchData();
@@ -79,426 +65,234 @@ const StudentDashboard = () => {
 
     const resolveAlert = async (alertId) => {
         setResolving(alertId);
-        try {
-            await axios.patch(`${API}/alerts/${alertId}/resolve`);
-            setAlerts(prev => prev.filter(a => a.alert_id !== alertId));
-        } catch (e) { console.error(e); }
+        await api.alerts.resolve(alertId);
+        setAlerts(prev => prev.filter(a => a.alert_id !== alertId));
         setResolving(null);
     };
 
     const handleInviteResponse = async (inviteId, action) => {
         setRespondingInvite(inviteId);
         try {
-            await axios.post(`${API}/invites/${inviteId}/${action}`, {
-                student_id: user.id
-            });
+            await api.invites.respond(inviteId, action, user.id);
             setInvites(prev => prev.filter(i => i.invite_id !== inviteId));
-            alert(`Invite ${action}ed successfully!`);
+            alert(`Invite ${action}ed!`);
             fetchData();
         } catch (e) {
-            alert(e.response?.data?.error || `Failed to ${action} invite`);
+            alert(e.message || `Failed to ${action} invite`);
         }
         setRespondingInvite(null);
     };
 
-    if (loading) return (
-        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-            Loading your dashboard...
-        </div>
-    );
-
-    if (view === 'class-view' && selectedClass) {
-        return <ClassView classId={selectedClass} onBack={() => { setView('dashboard'); setSelectedClass(null); }} userRole="student" userId={user.id} />;
-    } if (view === 'take-assignment' && selectedAssignment) {
+    // View routing
+    if (view === 'assignment-taker' && selectedAssignment) {
         return <AssignmentTaker assignmentId={selectedAssignment} onBack={() => { setView('dashboard'); setSelectedAssignment(null); fetchData(); }} />;
     }
+    if (view === 'class-view' && selectedClass) {
+        return <ClassView classId={selectedClass} onBack={() => { setView('dashboard'); setSelectedClass(null); }} userRole="student" userId={user.id} />;
+    }
+
+    if (loading) return <Loading />;
+
+    const openAlerts = alerts.filter(a => !a.resolved_status);
+    const riskLevel = risk?.risk_level || 'Unknown';
+    const riskColor = getRiskColor(riskLevel);
 
     return (
-        <div style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '32px 24px' }}>
             {/* Header */}
-            <header style={{
-                background: 'white',
-                borderBottom: '1px solid var(--border-light)',
-                padding: '16px 32px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-            }}>
-                <div>
-                    <h1 style={{ fontSize: '1.5rem', marginBottom: '4px' }}>My Dashboard</h1>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                        Welcome back, {user?.name}
-                        {invites.length > 0 && (
-                            <span style={{ marginLeft: '12px', color: 'var(--primary)', fontWeight: 600 }}>
-                                • {invites.length} new invite{invites.length > 1 ? 's' : ''}
-                            </span>
-                        )}
-                    </p>
-                </div>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <button onClick={() => setShowAdd(!showAdd)} className="btn">
-                        <Plus size={18} /> Add Activity
-                    </button>
-                    <button onClick={logout} className="btn-secondary">
-                        Sign Out
-                    </button>
-                </div>
-            </header>
+            <div style={{ marginBottom: '32px' }}>
+                <h2 style={{ margin: 0, fontSize: '1.75rem', color: '#202124' }}>Student Dashboard</h2>
+                <p style={{ margin: '4px 0 0', color: '#5f6368' }}>Welcome, {user?.name}</p>
+            </div>
 
-            <div className="content">
-                {/* Stats Overview */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                    <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ padding: '10px', background: 'var(--primary-light)', borderRadius: '12px' }}>
-                                <TrendingUp size={20} color="var(--primary)" />
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Risk Level</p>
-                                <span className={`badge badge-${risk?.risk_level?.toLowerCase()}`}>
-                                    {risk?.risk_level || 'Low'}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+                <StatCard title="Risk Level" value={riskLevel} icon={<AlertTriangle size={20} />} color={riskColor} />
+                <StatCard title="Risk Score" value={risk?.risk_score?.toFixed(2) || 'N/A'} icon={<Activity size={20} />} color={riskColor} />
+                <StatCard title="Pending Assignments" value={pendingAssignments.length} icon={<Clock size={20} />} color="#fbbc04" />
+                <StatCard title="Completed" value={completedAssignments.length} icon={<CheckCircle size={20} />} color="#34a853" />
+                <StatCard title="Open Alerts" value={openAlerts.length} icon={<Bell size={20} />} color="#ea4335" />
+            </div>
 
-                    <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ padding: '10px', background: 'var(--warning-light)', borderRadius: '12px' }}>
-                                <Clock size={20} color="var(--warning)" />
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Pending</p>
-                                <p style={{ fontSize: '1.5rem', fontWeight: 600 }}>{pendingAssignments.length}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ padding: '10px', background: 'var(--secondary-light)', borderRadius: '12px' }}>
-                                <CheckCircle size={20} color="var(--secondary)" />
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Completed</p>
-                                <p style={{ fontSize: '1.5rem', fontWeight: 600 }}>{completedAssignments.length}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ padding: '10px', background: 'var(--primary-light)', borderRadius: '12px' }}>
-                                <Activity size={20} color="var(--primary)" />
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Activities</p>
-                                <p style={{ fontSize: '1.5rem', fontWeight: 600 }}>{activities.length}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Add Activity Form */}
-                {showAdd && (
-                    <div className="card" style={{ marginBottom: '24px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ fontSize: '1.1rem' }}>Log New Activity</h3>
-                            <button onClick={() => setShowAdd(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                                <X size={20} color="var(--text-muted)" />
-                            </button>
-                        </div>
-                        <form onSubmit={handleAddActivity}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+            {/* Invites */}
+            {invites.length > 0 && (
+                <Card style={{ marginBottom: '32px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+                    <h3 style={{ margin: '0 0 16px', color: 'white' }}>Class Invitations ({invites.length})</h3>
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                        {invites.map(inv => (
+                            <div key={inv.invite_id} style={{ padding: '16px', background: 'rgba(255,255,255,0.15)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Title</label>
-                                    <input type="text" className="input" placeholder="Assignment name"
-                                        value={newAct.title} onChange={e => setNewAct({ ...newAct, title: e.target.value })} />
+                                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>{inv.class_name}</div>
+                                    <div style={{ fontSize: '0.875rem', opacity: 0.9 }}>From: {inv.mentor_name}</div>
                                 </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Type</label>
-                                    <select className="input" value={newAct.type} onChange={e => setNewAct({ ...newAct, type: e.target.value })}>
-                                        <option value="assignment">Assignment</option>
-                                        <option value="quiz">Quiz</option>
-                                        <option value="login">Login</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Due Date</label>
-                                    <input type="date" className="input" value={newAct.dueDate} onChange={e => setNewAct({ ...newAct, dueDate: e.target.value })} />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Status</label>
-                                    <select className="input" value={newAct.status} onChange={e => setNewAct({ ...newAct, status: e.target.value })}>
-                                        <option value="submitted">Submitted</option>
-                                        <option value="pending">Pending</option>
-                                        <option value="missed">Missed</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Days Late</label>
-                                    <input type="number" className="input" min="0" value={newAct.delay}
-                                        onChange={e => setNewAct({ ...newAct, delay: e.target.value })} />
-                                </div>
-                            </div>
-                            <button type="submit" className="btn">Log Activity</button>
-                        </form>
-                    </div>
-                )}
-
-                {/* Invites */}
-                {invites.length > 0 && (
-                    <div className="card" style={{ marginBottom: '24px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                            <Mail size={20} color="var(--primary)" />
-                            <h3 style={{ fontSize: '1.1rem' }}>Class Invitations</h3>
-                            <span className="badge" style={{ background: 'var(--primary)', color: 'white' }}>{invites.length}</span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {invites.map(invite => (
-                                <div key={invite.invite_id} style={{
-                                    padding: '16px',
-                                    borderRadius: '12px',
-                                    background: 'var(--primary-light)',
-                                    border: '1px solid var(--primary)',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}>
-                                    <div style={{ flex: 1 }}>
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                                            {invite.class_name}
-                                        </p>
-                                        <p style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '4px' }}>{invite.class_name}</p>
-                                        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                                            From {invite.mentor_name} ({invite.mentor_email})
-                                        </p>
-                                        {invite.class_description && (
-                                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px', fontStyle: 'italic' }}>
-                                                {invite.class_description}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginLeft: '16px' }}>
-                                        <button
-                                            onClick={() => handleInviteResponse(invite.invite_id, 'accept')}
-                                            disabled={respondingInvite === invite.invite_id}
-                                            className="btn"
-                                            style={{ padding: '10px 16px', fontSize: '0.9rem' }}
-                                        >
-                                            <UserCheck size={16} /> Accept
-                                        </button>
-                                        <button
-                                            onClick={() => handleInviteResponse(invite.invite_id, 'reject')}
-                                            disabled={respondingInvite === invite.invite_id}
-                                            className="btn-secondary"
-                                            style={{ padding: '10px 16px', fontSize: '0.9rem', color: 'var(--accent)', borderColor: 'var(--accent)' }}
-                                        >
-                                            <UserX size={16} /> Decline
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Classes */}
-                {classes.length > 0 && (
-                    <div className="card" style={{ marginBottom: '24px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                            <FolderOpen size={20} color="var(--primary)" />
-                            <h3 style={{ fontSize: '1.1rem' }}>My Classes</h3>
-                            <span className="badge badge-low">{classes.length}</span>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                            {classes.map(cls => (
-                                <div 
-                                    key={cls.class_id} 
-                                    onClick={() => {
-                                        setSelectedClass(cls.class_id);
-                                        setView('class-view');
-                                    }}
-                                    style={{
-                                        padding: '20px',
-                                        borderRadius: '12px',
-                                        background: 'linear-gradient(135deg, #1a73e8 0%, #4285f4 100%)',
-                                        color: 'white',
-                                        cursor: 'pointer',
-                                        transition: 'transform 0.2s, box-shadow 0.2s',
-                                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(-4px)';
-                                        e.currentTarget.style.boxShadow = '0 8px 16px rgba(26, 115, 232, 0.3)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                                    }}
-                                >
-                                    <p style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '8px' }}>{cls.name}</p>
-                                    {cls.description && (
-                                        <p style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '12px' }}>
-                                            {cls.description.length > 60 ? cls.description.substring(0, 60) + '...' : cls.description}
-                                        </p>
-                                    )}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.813rem', opacity: 0.9 }}>
-                                        <span>{cls.mentor_name}</span>
-                                        <span>{cls.member_count} students</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Pending Assignments */}
-                {pendingAssignments.length > 0 && (
-                    <div className="card" style={{ marginBottom: '24px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                            <FileText size={20} color="var(--warning)" />
-                            <h3 style={{ fontSize: '1.1rem' }}>Pending Assignments</h3>
-                            <span className="badge badge-medium">{pendingAssignments.length}</span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {pendingAssignments.map(assignment => {
-                                const dueDate = new Date(assignment.due_date);
-                                const now = new Date();
-                                const isOverdue = now > dueDate;
-                                const hoursTill = Math.max(0, Math.floor((dueDate - now) / (1000 * 60 * 60)));
-
-                                return (
-                                    <div key={assignment.assignment_id} style={{
-                                        padding: '16px',
-                                        borderRadius: '12px',
-                                        background: isOverdue ? 'var(--accent-light)' : 'var(--bg-main)',
-                                        border: `1px solid ${isOverdue ? 'var(--accent)' : 'var(--border)'}`,
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center'
-                                    }}>
-                                        <div style={{ flex: 1 }}>
-                                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                                                {assignment.class_name}
-                                            </p>
-                                            <p style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '8px' }}>{assignment.title}</p>
-                                            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '0.85rem' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: isOverdue ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                                                    <Clock size={14} />
-                                                    {isOverdue ? (
-                                                        <span style={{ fontWeight: 600 }}>Overdue</span>
-                                                    ) : (
-                                                        <span>Due in {hoursTill}h</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setSelectedAssignment(assignment.assignment_id);
-                                                setView('take-assignment');
-                                            }}
-                                            className="btn"
-                                            style={{
-                                                marginLeft: '16px',
-                                                background: isOverdue ? 'var(--accent)' : 'var(--primary)',
-                                                color: 'white'
-                                            }}
-                                        >
-                                            {isOverdue ? 'Submit Late' : 'Start'}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* Alerts */}
-                {alerts.length > 0 && (
-                    <div className="card" style={{ marginBottom: '24px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                            <Bell size={20} color="var(--accent)" />
-                            <h3 style={{ fontSize: '1.1rem' }}>Alerts</h3>
-                            <span className="badge badge-high">{alerts.filter(a => !a.resolved_status).length}</span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {alerts.map(alert => (
-                                <div key={alert.alert_id} style={{
-                                    padding: '14px 16px',
-                                    borderRadius: '12px',
-                                    background: alert.resolved_status ? 'var(--bg-main)' : 'var(--accent-light)',
-                                    border: `1px solid ${alert.resolved_status ? 'var(--border)' : 'var(--accent)'}`,
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    opacity: alert.resolved_status ? 0.6 : 1
-                                }}>
-                                    <div style={{ flex: 1 }}>
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>
-                                            {alert.alert_type || 'Alert'}
-                                        </p>
-                                        <p style={{ fontSize: '0.95rem', marginBottom: '4px' }}>{alert.alert_message}</p>
-                                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                            {new Date(alert.alert_date).toLocaleString()}
-                                        </p>
-                                    </div>
-                                    {!alert.resolved_status && (
-                                        <button
-                                            onClick={() => resolveAlert(alert.alert_id)}
-                                            disabled={resolving === alert.alert_id}
-                                            className="btn-secondary"
-                                            style={{ marginLeft: '16px', fontSize: '0.85rem', padding: '8px 16px' }}
-                                        >
-                                            Dismiss
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Recent Activities */}
-                <div className="card">
-                    <h3 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Recent Activities</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {activities.length === 0 ? (
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No activities yet.</p>
-                        ) : activities.slice(0, 10).map((act, i) => (
-                            <div key={i} style={{
-                                padding: '14px 16px',
-                                background: 'var(--bg-main)',
-                                borderRadius: '12px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ padding: '8px', background: 'var(--primary-light)', borderRadius: '10px' }}>
-                                        {act.activity_type === 'assignment' ? <BookOpen size={16} color="var(--primary)" /> : <Activity size={16} color="var(--primary)" />}
-                                    </div>
-                                    <div>
-                                        <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>{act.title || act.activity_type}</p>
-                                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                            {new Date(act.submission_date).toLocaleDateString()}
-                                            {act.due_date && ` • Due ${new Date(act.due_date).toLocaleDateString()}`}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <span className={`badge badge-${act.status === 'submitted' ? 'low' : act.status === 'pending' ? 'medium' : 'high'}`}>
-                                        {act.status}
-                                    </span>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <Button size="small" onClick={() => handleInviteResponse(inv.invite_id, 'accept')} disabled={respondingInvite === inv.invite_id} style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid white' }}>
+                                        <UserCheck size={16} /> Accept
+                                    </Button>
+                                    <Button size="small" onClick={() => handleInviteResponse(inv.invite_id, 'reject')} disabled={respondingInvite === inv.invite_id} variant="secondary" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)' }}>
+                                        <UserX size={16} /> Decline
+                                    </Button>
                                 </div>
                             </div>
                         ))}
                     </div>
+                </Card>
+            )}
+
+            {/* Alerts */}
+            {openAlerts.length > 0 && (
+                <Card style={{ marginBottom: '32px' }}>
+                    <h3 style={{ margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Bell size={18} color="#fbbc04" /> Alerts ({openAlerts.length})
+                    </h3>
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                        {openAlerts.slice(0, 5).map(a => (
+                            <div key={a.alert_id} style={{ padding: '12px', background: '#fef7e0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontWeight: 500, marginBottom: '4px' }}>{a.message}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>{formatDate(a.sent_at)}</div>
+                                </div>
+                                <Button size="small" onClick={() => resolveAlert(a.alert_id)} disabled={resolving === a.alert_id}>
+                                    {resolving === a.alert_id ? 'Resolving...' : 'Dismiss'}
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
+
+            {/* Classes */}
+            {classes.length > 0 && (
+                <div style={{ marginBottom: '32px' }}>
+                    <h3 style={{ fontSize: '1.125rem', margin: '0 0 16px 0', color: '#202124' }}>My Classes</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                        {classes.map(cls => (
+                            <Card key={cls.class_id} onClick={() => { setSelectedClass(cls.class_id); setView('class-view'); }} style={{ cursor: 'pointer' }}>
+                                <h4 style={{ margin: '0 0 8px', color: '#1a73e8' }}>{cls.name}</h4>
+                                <p style={{ fontSize: '0.875rem', color: '#5f6368', margin: '0 0 12px' }}>{cls.description || 'No description'}</p>
+                                <div style={{ fontSize: '0.875rem', color: '#80868b' }}>Mentor: {cls.mentor_name}</div>
+                            </Card>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {/* Pending Assignments */}
+            <Card style={{ marginBottom: '32px' }}>
+                <h3 style={{ margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Clock size={18} color="#fbbc04" /> Pending Assignments ({pendingAssignments.length})
+                </h3>
+                {pendingAssignments.length > 0 ? (
+                    <Table>
+                        <thead>
+                            <tr>
+                                <th>Assignment</th>
+                                <th>Due Date</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pendingAssignments.map(a => (
+                                <tr key={a.assignment_id}>
+                                    <td>
+                                        <div style={{ fontWeight: 500 }}>{a.title}</div>
+                                        <div style={{ fontSize: '0.875rem', color: '#5f6368' }}>{a.description}</div>
+                                    </td>
+                                    <td>{formatDate(a.due_date)}</td>
+                                    <td><Badge color="#fbbc04">Pending</Badge></td>
+                                    <td>
+                                        <Button size="small" onClick={() => { setSelectedAssignment(a.assignment_id); setView('assignment-taker'); }}>
+                                            <BookOpen size={16} /> Start
+                                        </Button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </Table>
+                ) : (
+                    <p style={{ margin: 0, color: '#5f6368', textAlign: 'center', padding: '20px' }}>No pending assignments</p>
+                )}
+            </Card>
+
+            {/* Completed Assignments */}
+            <Card style={{ marginBottom: '32px' }}>
+                <h3 style={{ margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CheckCircle size={18} color="#34a853" /> Completed Assignments ({completedAssignments.length})
+                </h3>
+                {completedAssignments.length > 0 ? (
+                    <Table>
+                        <thead>
+                            <tr>
+                                <th>Assignment</th>
+                                <th>Submitted</th>
+                                <th>Score</th>
+                                <th>Grade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {completedAssignments.map(a => (
+                                <tr key={a.assignment_id}>
+                                    <td>
+                                        <div style={{ fontWeight: 500 }}>{a.title}</div>
+                                        <div style={{ fontSize: '0.875rem', color: '#5f6368' }}>{a.description}</div>
+                                    </td>
+                                    <td>{formatDate(a.submitted_at)}</td>
+                                    <td>{a.score} / {a.max_score}</td>
+                                    <td>
+                                        <Badge color={percentage(a.score, a.max_score) >= 60 ? '#34a853' : '#ea4335'}>
+                                            {percentage(a.score, a.max_score)}%
+                                        </Badge>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </Table>
+                ) : (
+                    <p style={{ margin: 0, color: '#5f6368', textAlign: 'center', padding: '20px' }}>No completed assignments</p>
+                )}
+            </Card>
+
+            {/* Recent Activity */}
+            <Card>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0 }}>Recent Activity</h3>
+                    <Button size="small" onClick={() => setShowAdd(!showAdd)} icon={<Plus size={16} />}>Log Activity</Button>
+                </div>
+
+                {showAdd && (
+                    <form onSubmit={handleAddActivity} style={{ marginBottom: '20px', padding: '16px', background: '#f8f9fa', borderRadius: '8px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                        <select className="input" value={newAct.type} onChange={e => setNewAct({ ...newAct, type: e.target.value })}>
+                            <option value="assignment">Assignment</option>
+                            <option value="quiz">Quiz</option>
+                            <option value="test">Test</option>
+                            <option value="project">Project</option>
+                        </select>
+                        <input className="input" placeholder="Title" value={newAct.title} onChange={e => setNewAct({ ...newAct, title: e.target.value })} />
+                        <input type="date" className="input" value={newAct.dueDate} onChange={e => setNewAct({ ...newAct, dueDate: e.target.value })} />
+                        <input type="number" className="input" placeholder="Delay (days)" value={newAct.delay} onChange={e => setNewAct({ ...newAct, delay: e.target.value })} />
+                        <Button type="submit">Add</Button>
+                    </form>
+                )}
+
+                {activities.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                        {activities.slice(0, 10).map(act => (
+                            <div key={act.log_id} style={{ padding: '12px', background: '#f8f9fa', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontWeight: 500 }}>{act.activity_type}: {act.title || act.description}</div>
+                                    <div style={{ fontSize: '0.875rem', color: '#5f6368' }}>{formatDate(act.timestamp)}</div>
+                                </div>
+                                <Badge color={act.status === 'submitted' ? '#34a853' : '#fbbc04'}>{act.status}</Badge>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ margin: 0, color: '#5f6368', textAlign: 'center', padding: '20px' }}>No activity logged yet</p>
+                )}
+            </Card>
         </div>
     );
 };
 
-export default React.memo(StudentDashboard);
+export default StudentDashboard;
